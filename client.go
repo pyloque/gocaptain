@@ -42,6 +42,7 @@ type CaptainClient struct {
 	urlRoot   string
 	observers []IServiceObserver
 	keeper    *ServiceKeeper
+	waiter    chan bool
 }
 
 func NewCaptainClient(host string, port int) *CaptainClient {
@@ -58,8 +59,9 @@ func NewCaptainClientWithOrigins(origins ...*ServiceItem) *CaptainClient {
 		"",
 		[]IServiceObserver{},
 		nil,
+		nil,
 	}
-	keeper := &ServiceKeeper{client, 0, 10, 1000, make(chan bool)}
+	keeper := NewServiceKeeper(client)
 	client.keeper = keeper
 	return client
 }
@@ -153,7 +155,7 @@ func (this *CaptainClient) ReloadService(name string) {
 	if len(data.Services) == 0 && this.IsHealthy(name) {
 		this.Offline(name)
 	} else if len(data.Services) != 0 && !this.IsHealthy(name) {
-		this.Ready(name)
+		this.Online(name)
 	}
 }
 
@@ -218,16 +220,14 @@ func (this *CaptainClient) Observe(observer IServiceObserver) *CaptainClient {
 	return this
 }
 
-func (this *CaptainClient) Ready(name string) {
+func (this *CaptainClient) Online(name string) {
 	oldstate := this.AllHealthy()
 	this.watched[name] = true
 	for _, observer := range this.observers {
 		observer.Online(name)
 	}
 	if !oldstate && this.AllHealthy() {
-		for _, observer := range this.observers {
-			observer.AllOnline()
-		}
+		this.AllOnline()
 	}
 }
 
@@ -235,6 +235,16 @@ func (this *CaptainClient) Offline(name string) {
 	this.watched[name] = false
 	for _, observer := range this.observers {
 		observer.Offline(name)
+	}
+}
+
+func (this *CaptainClient) AllOnline() {
+	for _, observer := range this.observers {
+		observer.AllOnline()
+	}
+	waiter := this.waiter
+	if waiter != nil {
+		waiter <- true
 	}
 }
 
@@ -251,12 +261,19 @@ func (this *CaptainClient) AllHealthy() bool {
 	return true
 }
 
+func (this *CaptainClient) WaitUntilAllOnline() *CaptainClient {
+	this.waiter = make(chan bool, 1)
+	return this
+}
+
 func (this *CaptainClient) Start() {
 	go this.keeper.Start()
 	if len(this.watched) == 0 {
-		for _, observer := range this.observers {
-			observer.AllOnline()
-		}
+		this.AllOnline()
+	}
+	if this.waiter != nil {
+		<-this.waiter
+		this.waiter = nil
 	}
 }
 

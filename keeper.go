@@ -10,9 +10,15 @@ type ServiceKeeper struct {
 	KeepAlive     int64
 	CheckInterval time.Duration
 	Stop          chan bool
+	started       bool
+}
+
+func NewServiceKeeper(client *CaptainClient) *ServiceKeeper {
+	return &ServiceKeeper{client, 0, 10, 1000, make(chan bool), false}
 }
 
 func (this *ServiceKeeper) Start() {
+	this.started = true
 	for {
 		this.client.ShuffleUrlRoot()
 		this.watch()
@@ -45,5 +51,7 @@ func (this *ServiceKeeper) keep() {
 }
 
 func (this *ServiceKeeper) Quit() {
-	this.Stop <- true
+	if this.started {
+		this.Stop <- true
+	}
 }

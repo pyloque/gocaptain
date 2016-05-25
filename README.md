@@ -42,6 +42,7 @@ func main() {
           .Observe(&Observer{"service"}) // observe status change of service dependencies
           .KeepAlive(10) // keepalive heartbeat in seconds for provided service
           .CheckInterval(1000) // check service dependencies with 1000ms interval
+          .WaitUntilAllOnline() // let Start method block until all dependent services are ready
           .Start()
 	client.Hang() // hang just for test
 	client.Stop() // cancel provided service
