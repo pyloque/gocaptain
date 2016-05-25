@@ -244,7 +244,11 @@ func (this *CaptainClient) AllOnline() {
 	}
 	waiter := this.waiter
 	if waiter != nil {
-		waiter <- true
+		// non-blocking send
+		select {
+		case waiter <- true:
+		default:
+		}
 	}
 }
 
