@@ -33,10 +33,13 @@ func NewLocalService() *LocalService {
 	return &LocalService{-1, map[string]int64{}, map[string][]*ServiceItem{}}
 }
 
-func (this *LocalService) RandomService(name string) *ServiceItem {
+func (this *LocalService) RandomService(name string, failovers []*ServiceItem) *ServiceItem {
 	services := this.ServiceLists[name]
 	if len(services) == 0 {
-		panic(CaptainError{"no service provided"})
+		if failovers == nil || len(failovers) == 0 {
+			panic(&CaptainError{"no service provided"})
+		}
+		services = failovers
 	}
 	ind := rand.Intn(len(services))
 	return services[ind]

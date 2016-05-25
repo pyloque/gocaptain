@@ -37,6 +37,7 @@ func main() {
         gocaptain.NewServiceItem("localhost", 6790))
 	// client := gocaptain.NewCaptainClient("localhost", 6789) // connect single captain server
 	client.Watch("service1", "service2", "service3")  // define service dependencies
+          .Failover("service1", NewServiceItem("localhost", 6100))  // provided failover services
           .Provide("service4", gocaptain.NewServiceItemWithTtl("localhost", 6400, 30))  // provide service with ttl of 30s
           .Observe(&Observer{"service"}) // observe status change of service dependencies
           .KeepAlive(10) // keepalive heartbeat in seconds for provided service

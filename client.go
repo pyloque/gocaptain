@@ -38,6 +38,7 @@ type CaptainClient struct {
 	locals    *LocalService
 	provided  map[string]*ServiceItem
 	watched   map[string]bool
+	failovers map[string][]*ServiceItem
 	urlRoot   string
 	observers []IServiceObserver
 	keeper    *ServiceKeeper
@@ -53,6 +54,7 @@ func NewCaptainClientWithOrigins(origins ...*ServiceItem) *CaptainClient {
 		NewLocalService(),
 		map[string]*ServiceItem{},
 		map[string]bool{},
+		map[string][]*ServiceItem{},
 		"",
 		[]IServiceObserver{},
 		nil,
@@ -187,13 +189,18 @@ func (this *CaptainClient) Watch(names ...string) *CaptainClient {
 	return this
 }
 
+func (this *CaptainClient) Failover(name string, items ...*ServiceItem) *CaptainClient {
+	this.failovers[name] = items
+	return this
+}
+
 func (this *CaptainClient) Provide(name string, service *ServiceItem) *CaptainClient {
 	this.provided[name] = service
 	return this
 }
 
 func (this *CaptainClient) Select(name string) *ServiceItem {
-	return this.locals.RandomService(name)
+	return this.locals.RandomService(name, this.failovers[name])
 }
 
 func (this *CaptainClient) KeepAlive(keepAlive int64) *CaptainClient {
