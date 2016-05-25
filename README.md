@@ -1,3 +1,11 @@
+Captain
+--------------------------
+Captain is yet another service discovery implementation based on redis.
+Captain sacrifices a little high availability for simplicity and performance.
+In most cases, we dont have so many machines as google/amazon.
+The possibility of machine crashing is very low, high Availability is not so abviously important yet.
+But the market only provides zookeeper/etcd/consul, they are complex, at least much complexer compared with captain.
+
 Use Golang Captain Client
 -------------------------------
 ```go
@@ -12,14 +20,18 @@ func (this *Observer) Online(name string) {
 }
 func (this *Observer) AllOnline() {
 	println(this.name + " is all ready")
+    println(client.Select("service1").UrlRoot()) // now select the service your want
+    println(client.Select("service2").UrlRoot())
 }
 func (this *Observer) Offline(name string) {
 	println(name + " is offline")
 }
 
+var client *gocaptain.CaptainClient
+
 func main() {
     // connect multiple captain servers
-    client := gocaptain.NewCaptainClientWithOrigins(
+    client = gocaptain.NewCaptainClientWithOrigins(
         gocaptain.NewServiceItem("localhost", 6789),
         gocaptain.NewServiceItem("localhost", 6790))
 	// client := gocaptain.NewCaptainClient("localhost", 6789) // connect single captain server
