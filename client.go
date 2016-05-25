@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 type CaptainError struct {
@@ -27,8 +28,8 @@ func SilentOnPanic() {
 }
 
 type IServiceObserver interface {
-	Ready(name string)
-	AllReady()
+	Online(name string)
+	AllOnline()
 	Offline(name string)
 }
 
@@ -43,16 +44,12 @@ type CaptainClient struct {
 }
 
 func NewCaptainClient(host string, port int) *CaptainClient {
-	return NewCaptainClientWithOrigins(map[string]int{host: port})
+	return NewCaptainClientWithOrigins(NewServiceItem(host, port))
 }
 
-func NewCaptainClientWithOrigins(origins map[string]int) *CaptainClient {
-	var origs []*ServiceItem
-	for host, port := range origins {
-		origs = append(origs, NewServiceItem(host, port))
-	}
+func NewCaptainClientWithOrigins(origins ...*ServiceItem) *CaptainClient {
 	client := &CaptainClient{
-		origs,
+		origins,
 		NewLocalService(),
 		map[string]*ServiceItem{},
 		map[string]bool{},
@@ -60,7 +57,7 @@ func NewCaptainClientWithOrigins(origins map[string]int) *CaptainClient {
 		[]IServiceObserver{},
 		nil,
 	}
-	keeper := &ServiceKeeper{client, 0, 10, make(chan bool)}
+	keeper := &ServiceKeeper{client, 0, 10, 1000, make(chan bool)}
 	client.keeper = keeper
 	return client
 }
@@ -199,8 +196,13 @@ func (this *CaptainClient) Select(name string) *ServiceItem {
 	return this.locals.RandomService(name)
 }
 
-func (this *CaptainClient) Heartbeat(ttl int64) *CaptainClient {
-	this.keeper.Ttl = ttl
+func (this *CaptainClient) KeepAlive(keepAlive int64) *CaptainClient {
+	this.keeper.KeepAlive = keepAlive
+	return this
+}
+
+func (this *CaptainClient) CheckInterval(interval int64) *CaptainClient {
+	this.keeper.CheckInterval = time.Duration(interval)
 	return this
 }
 
@@ -213,11 +215,11 @@ func (this *CaptainClient) Ready(name string) {
 	oldstate := this.AllHealthy()
 	this.watched[name] = true
 	for _, observer := range this.observers {
-		observer.Ready(name)
+		observer.Online(name)
 	}
 	if !oldstate && this.AllHealthy() {
 		for _, observer := range this.observers {
-			observer.AllReady()
+			observer.AllOnline()
 		}
 	}
 }
@@ -246,7 +248,7 @@ func (this *CaptainClient) Start() {
 	go this.keeper.Start()
 	if len(this.watched) == 0 {
 		for _, observer := range this.observers {
-			observer.AllReady()
+			observer.AllOnline()
 		}
 	}
 }
