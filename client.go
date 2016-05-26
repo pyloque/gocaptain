@@ -28,9 +28,9 @@ func SilentOnPanic() {
 }
 
 type IServiceObserver interface {
-	Online(name string)
-	AllOnline()
-	Offline(name string)
+	Online(client *CaptainClient, name string)
+	AllOnline(client *CaptainClient)
+	Offline(client *CaptainClient, name string)
 }
 
 type CaptainClient struct {
@@ -224,7 +224,7 @@ func (this *CaptainClient) Online(name string) {
 	oldstate := this.AllHealthy()
 	this.watched[name] = true
 	for _, observer := range this.observers {
-		observer.Online(name)
+		observer.Online(this, name)
 	}
 	if !oldstate && this.AllHealthy() {
 		this.AllOnline()
@@ -234,13 +234,13 @@ func (this *CaptainClient) Online(name string) {
 func (this *CaptainClient) Offline(name string) {
 	this.watched[name] = false
 	for _, observer := range this.observers {
-		observer.Offline(name)
+		observer.Offline(this, name)
 	}
 }
 
 func (this *CaptainClient) AllOnline() {
 	for _, observer := range this.observers {
-		observer.AllOnline()
+		observer.AllOnline(this)
 	}
 	waiter := this.waiter
 	if waiter != nil {
