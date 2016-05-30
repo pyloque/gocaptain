@@ -5,16 +5,20 @@ import (
 	"math/rand"
 )
 
+const ORIGIN_DEFAULT_PROBE = 1024
+
 type ServiceItem struct {
-	Host string
-	Port int
-	Ttl  int
+	Host  string
+	Port  int
+	Ttl   int
+	Probe int
 }
 
 type LocalService struct {
 	GlobalVersion int64
 	Versions      map[string]int64
 	ServiceLists  map[string][]*ServiceItem
+	failovers     map[string][]*ServiceItem
 }
 
 func NewServiceItem(host string, port int) *ServiceItem {
@@ -22,7 +26,7 @@ func NewServiceItem(host string, port int) *ServiceItem {
 }
 
 func NewServiceItemWithTtl(host string, port int, ttl int) *ServiceItem {
-	return &ServiceItem{host, port, ttl}
+	return &ServiceItem{host, port, ttl, ORIGIN_DEFAULT_PROBE}
 }
 
 func (this *ServiceItem) UrlRoot() string {
@@ -30,11 +34,12 @@ func (this *ServiceItem) UrlRoot() string {
 }
 
 func NewLocalService() *LocalService {
-	return &LocalService{-1, map[string]int64{}, map[string][]*ServiceItem{}}
+	return &LocalService{-1, map[string]int64{}, map[string][]*ServiceItem{}, map[string][]*ServiceItem{}}
 }
 
-func (this *LocalService) RandomService(name string, failovers []*ServiceItem) *ServiceItem {
+func (this *LocalService) RandomService(name string) *ServiceItem {
 	services := this.ServiceLists[name]
+	failovers := this.failovers[name]
 	if len(services) == 0 {
 		if failovers == nil || len(failovers) == 0 {
 			panic(&CaptainError{"no service provided"})
@@ -63,4 +68,8 @@ func (this *LocalService) InitService(name string) {
 
 func (this *LocalService) ReplaceService(name string, services []*ServiceItem) {
 	this.ServiceLists[name] = services
+}
+
+func (this *LocalService) Failover(name string, services []*ServiceItem) {
+	this.failovers[name] = services
 }

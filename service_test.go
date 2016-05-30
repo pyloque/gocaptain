@@ -8,7 +8,8 @@ func TestService(t *testing.T) {
 	locals := LocalService{
 		1,
 		map[string]int64{"watch": 2},
-		map[string][]*ServiceItem{"watch": []*ServiceItem{&ServiceItem{"localhost", 6000, 30}}},
+		map[string][]*ServiceItem{"watch": []*ServiceItem{NewServiceItem("localhost", 6000)}},
+		map[string][]*ServiceItem{},
 	}
 	if locals.GetVersion("watch") != 2 {
 		t.Error("Get Version return illegal version")
@@ -32,7 +33,7 @@ func TestService(t *testing.T) {
 	if locals.GetVersion("watch") != 3 {
 		t.Error("Get Version return illegal version")
 	}
-	locals.ReplaceService("watch", []*ServiceItem{&ServiceItem{"localhost", 6100, 30}})
+	locals.ReplaceService("watch", []*ServiceItem{NewServiceItem("localhost", 6100)})
 	item = locals.RandomService("watch")
 	if item.Host != "localhost" || item.Port != 6100 {
 		t.Error("RandomService return illegal service item")

@@ -10,6 +10,8 @@ https://github.com/pyloque/captain
 Use Golang Captain Client
 -------------------------------
 ```go
+
+import "fmt"
 import "github.com/pyloque/gocaptain"
 
 type Observer struct {
@@ -28,6 +30,10 @@ func (this *Observer) Offline(client *gocaptain.CaptainClient, name string) {
 	println(name + " is offline")
 }
 
+func (this *Observer) KvUpdate(client *gocaptain.CaptainClient, key string) {
+    fmt.Printf("%v:%v", key, client.GetKv(key))
+}
+
 
 func main() {
     // connect multiple captain servers
@@ -39,6 +45,7 @@ func main() {
           .Failover("service1", NewServiceItem("localhost", 6100))  // provided failover services
           .Provide("service4", gocaptain.NewServiceItemWithTtl("localhost", 6400, 30))  // provide service with ttl of 30s
           .Observe(&Observer{"service"}) // observe status change of service dependencies
+          .WatchKv("project_settings_service1")
           .KeepAlive(10) // keepalive heartbeat in seconds for provided service
           .CheckInterval(1000) // check service dependencies with 1000ms interval
           .WaitUntilAllOnline() // let Start method block until all dependent services are ready

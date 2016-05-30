@@ -20,7 +20,7 @@ func NewServiceKeeper(client *CaptainClient) *ServiceKeeper {
 func (this *ServiceKeeper) Start() {
 	this.started = true
 	for {
-		this.client.ShuffleUrlRoot()
+		this.client.ShuffleOrigin()
 		this.watch()
 		this.keep()
 		select {
@@ -33,10 +33,17 @@ func (this *ServiceKeeper) Start() {
 
 func (this *ServiceKeeper) watch() {
 	defer SilentOnPanic()
-	if this.client.CheckDirty() {
-		dirties := this.client.CheckVersions()
+	flags := this.client.CheckDirty()
+	if flags[0] {
+		dirties := this.client.CheckServiceVersions()
 		for _, name := range dirties {
 			this.client.ReloadService(name)
+		}
+	}
+	if flags[1] {
+		dirties := this.client.CheckKvVersions()
+		for _, key := range dirties {
+			this.client.ReloadKv(key)
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -31,18 +32,20 @@ type IServiceObserver interface {
 	Online(client *CaptainClient, name string)
 	AllOnline(client *CaptainClient)
 	Offline(client *CaptainClient, name string)
+	KvUpdate(client *CaptainClient, key string)
 }
 
 type CaptainClient struct {
-	origins   []*ServiceItem
-	locals    *LocalService
-	provided  map[string]*ServiceItem
-	watched   map[string]bool
-	failovers map[string][]*ServiceItem
-	urlRoot   string
-	observers []IServiceObserver
-	keeper    *ServiceKeeper
-	waiter    chan bool
+	origins       []*ServiceItem
+	services      *LocalService
+	kvs           *LocalKv
+	provided      map[string]*ServiceItem
+	watched       map[string]bool
+	watchedKvs    map[string]bool
+	observers     []IServiceObserver
+	keeper        *ServiceKeeper
+	waiter        chan bool
+	currentOrigin *ServiceItem
 }
 
 func NewCaptainClient(host string, port int) *CaptainClient {
@@ -53,11 +56,12 @@ func NewCaptainClientWithOrigins(origins ...*ServiceItem) *CaptainClient {
 	client := &CaptainClient{
 		origins,
 		NewLocalService(),
+		NewLocalKv(),
 		map[string]*ServiceItem{},
 		map[string]bool{},
-		map[string][]*ServiceItem{},
-		"",
+		map[string]bool{},
 		[]IServiceObserver{},
+		nil,
 		nil,
 		nil,
 	}
@@ -66,40 +70,52 @@ func NewCaptainClientWithOrigins(origins ...*ServiceItem) *CaptainClient {
 	return client
 }
 
-func (this *CaptainClient) ShuffleUrlRoot() {
-	ind := rand.Intn(len(this.origins))
-	this.urlRoot = this.origins[ind].UrlRoot()
+func (this *CaptainClient) ShuffleOrigin() {
+	var totalProbe = 0
+	for _, origin := range this.origins {
+		totalProbe += origin.Probe
+	}
+	var randProbe = rand.Intn(totalProbe)
+	var accProbe = 0
+	for _, origin := range this.origins {
+		accProbe += origin.Probe
+		if accProbe > randProbe {
+			this.currentOrigin = origin
+			break
+		}
+	}
 }
 
 func (this *CaptainClient) UrlRoot() string {
-	if this.urlRoot == "" {
-		this.ShuffleUrlRoot()
+	if this.currentOrigin == nil {
+		this.ShuffleOrigin()
 	}
-	return this.urlRoot
+	return this.currentOrigin.UrlRoot()
 }
 
-func (this *CaptainClient) CheckDirty() bool {
-	url := fmt.Sprintf(
-		"%v/api/service/dirty?version=%v",
-		this.urlRoot, this.locals.GlobalVersion)
+func (this *CaptainClient) CheckDirty() []bool {
+	url := fmt.Sprintf("%v/api/version", this.UrlRoot())
 	resp, err := http.Get(url)
 	if err != nil {
 		panic(&CaptainError{fmt.Sprintf("call api dirty error:%v", err.Error())})
 	}
 	decoder := json.NewDecoder(resp.Body)
 	var data struct {
-		Ok      bool
-		Dirty   bool
-		Version uint64
+		Ok       bool
+		Kversion int64 `json:"kv.version"`
+		Sversion int64 `json:"service.vesion"`
 	}
 	err = decoder.Decode(&data)
 	if err != nil {
 		panic(&CaptainError{fmt.Sprintf("api dirty response illegal:%v", err)})
 	}
-	return data.Dirty
+	var flags = []bool{false, false}
+	flags[0] = data.Sversion != this.services.GlobalVersion
+	flags[1] = data.Kversion != this.kvs.GlobalVersion
+	return flags
 }
 
-func (this *CaptainClient) CheckVersions() []string {
+func (this *CaptainClient) CheckServiceVersions() []string {
 	dirties := []string{}
 	if len(this.watched) == 0 {
 		return dirties
@@ -112,7 +128,7 @@ func (this *CaptainClient) CheckVersions() []string {
 			buf.WriteString("&")
 		}
 	}
-	url := fmt.Sprintf("%v/api/service/version?%v", this.urlRoot, buf.String())
+	url := fmt.Sprintf("%v/api/service/version?%v", this.UrlRoot(), buf.String())
 	resp, err := http.Get(url)
 	if err != nil {
 		panic(&CaptainError{fmt.Sprintf("call api check version error:%v", err)})
@@ -127,15 +143,49 @@ func (this *CaptainClient) CheckVersions() []string {
 		panic(&CaptainError{fmt.Sprintf("api check version response illegal:%s", err)})
 	}
 	for name, version := range data.Versions {
-		if version != this.locals.GetVersion(name) {
+		if version != this.services.GetVersion(name) {
 			dirties = append(dirties, name)
 		}
 	}
 	return dirties
 }
 
+func (this *CaptainClient) CheckKvVersions() []string {
+	dirties := []string{}
+	if len(this.watchedKvs) == 0 {
+		return dirties
+	}
+	var buf bytes.Buffer
+	var i = 0
+	for key := range this.watchedKvs {
+		buf.WriteString("key=" + key)
+		if i < len(this.watchedKvs)-1 {
+			buf.WriteString("&")
+		}
+	}
+	url := fmt.Sprintf("%v/api/kv/version?%v", this.UrlRoot(), buf.String())
+	resp, err := http.Get(url)
+	if err != nil {
+		panic(&CaptainError{fmt.Sprintf("call api check version error:%v", err)})
+	}
+	decoder := json.NewDecoder(resp.Body)
+	var data struct {
+		Ok       bool
+		Versions map[string]int64
+	}
+	err = decoder.Decode(&data)
+	if err != nil {
+		panic(&CaptainError{fmt.Sprintf("api check version response illegal:%s", err)})
+	}
+	for key, version := range data.Versions {
+		if version != this.kvs.GetVersion(key) {
+			dirties = append(dirties, key)
+		}
+	}
+	return dirties
+}
 func (this *CaptainClient) ReloadService(name string) {
-	url := fmt.Sprintf("%v/api/service/set?name=%v", this.urlRoot, name)
+	url := fmt.Sprintf("%v/api/service/set?name=%v", this.UrlRoot(), name)
 	resp, err := http.Get(url)
 	if err != nil {
 		panic(&CaptainError{fmt.Sprintf("call api service set error:%v", err)})
@@ -150,8 +200,8 @@ func (this *CaptainClient) ReloadService(name string) {
 	if err != nil {
 		panic(&CaptainError{fmt.Sprintf("api service set response illegal:%v", err)})
 	}
-	this.locals.SetVersion(name, data.Version)
-	this.locals.ReplaceService(name, data.Services)
+	this.services.SetVersion(name, data.Version)
+	this.services.ReplaceService(name, data.Services)
 	if len(data.Services) == 0 && this.IsHealthy(name) {
 		this.Offline(name)
 	} else if len(data.Services) != 0 && !this.IsHealthy(name) {
@@ -159,11 +209,36 @@ func (this *CaptainClient) ReloadService(name string) {
 	}
 }
 
+func (this *CaptainClient) ReloadKv(key string) {
+	url := fmt.Sprintf("%v/api/kv/get?key=%v", this.UrlRoot(), key)
+	resp, err := http.Get(url)
+	if err != nil {
+		panic(&CaptainError{fmt.Sprintf("call api kv get error:%v", err)})
+	}
+	decoder := json.NewDecoder(resp.Body)
+	decoder.UseNumber()
+	var data struct {
+		Ok bool
+		Kv map[string]interface{}
+	}
+	err = decoder.Decode(&data)
+	if err != nil {
+		panic(&CaptainError{fmt.Sprintf("api kv get response illegal:%v", err)})
+	}
+	var kv = data.Kv
+	var n = kv["version"].(json.Number)
+	var value = kv["value"].(map[string]interface{})
+	var version, _ = strconv.ParseInt(string(n), 10, 64)
+	this.kvs.SetVersion(key, version)
+	this.kvs.ReplaceKv(key, value)
+	this.KvUpdate(key)
+}
+
 func (this *CaptainClient) KeepService() {
 	for name, item := range this.provided {
 		url := fmt.Sprintf(
 			"%v/api/service/keep?name=%v&host=%v&port=%v&ttl=%v",
-			this.urlRoot, name, item.Host, item.Port, item.Ttl)
+			this.UrlRoot(), name, item.Host, item.Port, item.Ttl)
 		_, err := http.Get(url)
 		if err != nil {
 			panic(&CaptainError{fmt.Sprintf("call api keep service error:%v", err)})
@@ -175,7 +250,7 @@ func (this *CaptainClient) CancelService() {
 	for name, item := range this.provided {
 		url := fmt.Sprintf(
 			"%v/api/service/cancel?name=%v&host=%v&port=%v",
-			this.urlRoot, name, item.Host, item.Port)
+			this.UrlRoot(), name, item.Host, item.Port)
 		_, err := http.Get(url)
 		if err != nil {
 			panic(&CaptainError{fmt.Sprintf("call api cancel service error:%v", err)})
@@ -186,13 +261,21 @@ func (this *CaptainClient) CancelService() {
 func (this *CaptainClient) Watch(names ...string) *CaptainClient {
 	for _, name := range names {
 		this.watched[name] = false
-		this.locals.InitService(name)
+		this.services.InitService(name)
+	}
+	return this
+}
+
+func (this *CaptainClient) WatchKv(keys ...string) *CaptainClient {
+	for _, key := range keys {
+		this.watchedKvs[key] = true
+		this.kvs.InitKv(key)
 	}
 	return this
 }
 
 func (this *CaptainClient) Failover(name string, items ...*ServiceItem) *CaptainClient {
-	this.failovers[name] = items
+	this.services.Failover(name, items)
 	return this
 }
 
@@ -202,7 +285,11 @@ func (this *CaptainClient) Provide(name string, service *ServiceItem) *CaptainCl
 }
 
 func (this *CaptainClient) Select(name string) *ServiceItem {
-	return this.locals.RandomService(name, this.failovers[name])
+	return this.services.RandomService(name)
+}
+
+func (this *CaptainClient) GetKv(key string) map[string]interface{} {
+	return this.kvs.GetKv(key)
 }
 
 func (this *CaptainClient) KeepAlive(keepAlive int64) *CaptainClient {
@@ -249,6 +336,12 @@ func (this *CaptainClient) AllOnline() {
 		case waiter <- true:
 		default:
 		}
+	}
+}
+
+func (this *CaptainClient) KvUpdate(key string) {
+	for _, observer := range this.observers {
+		observer.KvUpdate(this, key)
 	}
 }
 
