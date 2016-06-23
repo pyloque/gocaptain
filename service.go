@@ -8,10 +8,21 @@ import (
 const ORIGIN_DEFAULT_PROBE = 1024
 
 type ServiceItem struct {
-	Host  string
-	Port  int
-	Ttl   int
-	Probe int
+	Host    string
+	Port    int
+	Ttl     int
+	Payload string
+	Probe   int
+}
+
+func (this *ServiceItem) SetTtl(ttl int) *ServiceItem {
+	this.Ttl = ttl
+	return this
+}
+
+func (this *ServiceItem) SetPayload(payload string) *ServiceItem {
+	this.Payload = payload
+	return this
 }
 
 type LocalService struct {
@@ -22,11 +33,11 @@ type LocalService struct {
 }
 
 func NewServiceItem(host string, port int) *ServiceItem {
-	return NewServiceItemWithTtl(host, port, 30)
+	return NewServiceItemWithTtl(host, port, 30, "")
 }
 
-func NewServiceItemWithTtl(host string, port int, ttl int) *ServiceItem {
-	return &ServiceItem{host, port, ttl, ORIGIN_DEFAULT_PROBE}
+func NewServiceItemWithTtl(host string, port int, ttl int, payload string) *ServiceItem {
+	return &ServiceItem{host, port, ttl, payload, ORIGIN_DEFAULT_PROBE}
 }
 
 func (this *ServiceItem) UrlRoot() string {

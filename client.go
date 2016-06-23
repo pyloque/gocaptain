@@ -237,8 +237,8 @@ func (this *CaptainClient) ReloadKv(key string) {
 func (this *CaptainClient) KeepService() {
 	for name, item := range this.provided {
 		url := fmt.Sprintf(
-			"%v/api/service/keep?name=%v&host=%v&port=%v&ttl=%v",
-			this.UrlRoot(), name, item.Host, item.Port, item.Ttl)
+			"%v/api/service/keep?name=%v&host=%v&port=%v&ttl=%v&payload=%v",
+			this.UrlRoot(), name, item.Host, item.Port, item.Ttl, item.Payload)
 		_, err := http.Get(url)
 		if err != nil {
 			panic(&CaptainError{fmt.Sprintf("call api keep service error:%v", err)})
@@ -364,6 +364,9 @@ func (this *CaptainClient) WaitUntilAllOnline() *CaptainClient {
 }
 
 func (this *CaptainClient) Start() {
+	for key := range this.watchedKvs {
+		this.ReloadKv(key)
+	}
 	go this.keeper.Start()
 	if len(this.watched) == 0 {
 		this.AllOnline()
